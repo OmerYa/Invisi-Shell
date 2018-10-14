@@ -1,0 +1,5 @@
+LIBRARY "InvisiShellProfiler.Dll"
+
+EXPORTS
+    DllCanUnloadNow PRIVATE
+    DllGetClassObject PRIVATE

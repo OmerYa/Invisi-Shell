@@ -46,7 +46,9 @@ private:
 	std::atomic<int> refCount;
     ICorProfilerInfo3* InvisiShellProfilerInfo;
 
+	void RemoveProfilerTrace();
 
+	bool PlaceHook(void* lpFunction, void* pHookBuffer, size_t nHookBufferSize);
 
 	UINT_PTR GetJittedFunctionAddress(ModuleID moduleId, LPCWSTR szClassName, LPCWSTR szFuncName, ULONG nParamsCount);
 
